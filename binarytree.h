@@ -111,11 +111,23 @@ protected:
     }
 public:
     // TODO: Selis Luis (Move Constructor)
-    CBinaryTree(Binary &&other){ }
-
+    CBinaryTree(CBinaryTree &&other) noexcept
+        : m_pRoot(other.m_pRoot), m_size(other.m_size), Compfn(other.Compfn){
+        // Dejamos el árbol origen en estado vacío para evitar doble liberación
+        other.m_pRoot = nullptr;
+        other.m_size = 0;}
     // TODO: Selis Luis (Destructor)
-    virtual ~CBinaryTree(){  } 
-    
+    virtual ~CBinaryTree(){ 
+        clear(m_pRoot);
+        m_pRoot = nullptr;
+        m_size = 0;} 
+protected:
+    void clear(Node *pNode) {
+        if (pNode) {
+            clear(pNode->getChild(0));
+            clear(pNode->getChild(1));
+            delete pNode;}}
+
     // TODO: Quispe David
     void inorder  (ostream &os)    {   inorder  (m_pRoot, os, 0);  }
 
