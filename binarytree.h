@@ -113,7 +113,6 @@ public:
     // TODO: Selis Luis (Move Constructor)
     CBinaryTree(CBinaryTree &&other) noexcept
         : m_pRoot(other.m_pRoot), m_size(other.m_size), Compfn(other.Compfn){
-        // Dejamos el árbol origen en estado vacío para evitar doble liberación
         m_pRoot = copyTree(nullptr, other.m_pRoot);
         m_size = other.m_size;}
     // TODO: Selis Luis (Destructor)
