@@ -114,8 +114,8 @@ public:
     CBinaryTree(CBinaryTree &&other) noexcept
         : m_pRoot(other.m_pRoot), m_size(other.m_size), Compfn(other.Compfn){
         // Dejamos el árbol origen en estado vacío para evitar doble liberación
-        other.m_pRoot = nullptr;
-        other.m_size = 0;}
+        m_pRoot = copyTree(nullptr, other.m_pRoot);
+        m_size = other.m_size;}
     // TODO: Selis Luis (Destructor)
     virtual ~CBinaryTree(){ 
         clear(m_pRoot);
@@ -127,6 +127,12 @@ protected:
             clear(pNode->getChild(0));
             clear(pNode->getChild(1));
             delete pNode;}}
+    Node* copyTree(Node* pParent, Node* pNode) {
+        if (!pNode) return nullptr;
+        Node* newNode = new Node(pParent, pNode->getDataRef(), pNode->m_ref);
+        newNode->m_pChild[0] = copyTree(newNode, pNode->getChild(0));
+        newNode->m_pChild[1] = copyTree(newNode, pNode->getChild(1));
+		return newNode;}
 
     // TODO: Quispe David
     void inorder  (ostream &os)    {   inorder  (m_pRoot, os, 0);  }
