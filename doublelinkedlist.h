@@ -1,6 +1,7 @@
 #ifndef __DOUBLE_LINKEDLIST_H__
 #define __DOUBLE_LINKEDLIST_H__
 #include <iostream>
+#include <mutex>
 #include "types.h"
 #include "traits.h"
 
@@ -111,6 +112,7 @@ private:
     Node   *m_pTail = nullptr;
     size_t m_nElem = 0;
     Func   m_fCompare;
+	std::mutex m_mutex; // modificacion LS
 
 public:
     // Constructor
@@ -154,6 +156,7 @@ public:
 
 template <typename Traits>
 void CDoubleLinkedList<Traits>::Insert(value_type &elem, Ref ref){
+	std::lock_guard<std::mutex> lock(m_mutex);  // modificacion LS
     InternalInsert(m_pRoot, elem, ref);
 }
 
@@ -186,6 +189,13 @@ CDoubleLinkedList<Traits>::CDoubleLinkedList(){}
 //      Hacer loop copiando cada elemento
 template <typename Traits>
 CDoubleLinkedList<Traits>::CDoubleLinkedList(CDoubleLinkedList &other){
+	std::lock_guard<std::mutex> lock(other.m_mutex); // modificacion LS
+    Node *pNode = other.m_pRoot;
+    while(pNode){
+        value_type val = pNode->GetData();
+        Ref ref = pNode->GetRef();
+        Insert(val, ref);
+        pNode = pNode->GetNext();}
 }
 
 // Move Constructor
@@ -194,13 +204,21 @@ CDoubleLinkedList<Traits>::CDoubleLinkedList(CDoubleLinkedList &&other){
     m_pRoot    = std::move(other.m_pRoot);
     m_nElem    = std::move(other.m_nElem);
     m_fCompare = std::move(other.m_fCompare);
-}
+    m_pTail    = std::move(other.m_pTail);} // modificacion LS
 
 // TODO: Implementar y liberar la memoria de cada Node
 template <typename Traits>
 CDoubleLinkedList<Traits>::~CDoubleLinkedList()
 {
-}
+    std::lock_guard<std::mutex> lock(m_mutex); // modificacion LS
+    Node *pNode = m_pRoot;
+    while(pNode){
+        Node *pNext = pNode->GetNext();
+        delete pNode;
+        pNode = pNext;}
+    m_pRoot = nullptr;
+    m_pTail = nullptr;
+    m_nElem = 0;}
 
 // TODO: Este operador debe quedar fuera de la clase
 // template <typename Traits>
@@ -210,6 +228,15 @@ CDoubleLinkedList<Traits>::~CDoubleLinkedList()
 //         os << pRoot->GetData() << " ";
 //     return os;
 // }
+
+template <typename Traits> // modificacion LS
+std::istream &CDoubleLinkedList<Traits>::Read(std::istream &is){
+    std::lock_guard<std::mutex> lock(m_mutex);
+    value_type val;
+    Ref ref;
+    while(is >> val >> ref){
+        Insert(val, ref);}
+    return is;}
 
 void DemoDoubleLinkedList();
 
