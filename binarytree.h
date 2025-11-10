@@ -4,6 +4,7 @@
 //#include <algorithm>
 #include <cassert>
 #include "types.h"
+#include <mutex>
 //#include "util.h"
 using namespace std;
 
@@ -26,6 +27,14 @@ private:
     CBinaryTreeNode(Node *pParent, T data, Ref ref = nullptr, Node *p1 = nullptr) 
         : m_pParent(pParent), m_data(data)
     {   m_pChild[0] = p0;   m_pChild[1] = p1;   }
+    
+    // Modificacion, Constructor copia
+    CBinaryTreeNode(const Node &other)
+        : m_data(other.m_data), m_ref(other.m_ref), m_pParent(nullptr)
+    {
+        m_pChild[0] = other.m_pChild[0] ? new Node(*other.m_pChild[0]) : nullptr;
+        m_pChild[1] = other.m_pChild[1] ? new Node(*other.m_pChild[1]) : nullptr;}
+    // Fin de modificacion
 
 // TODO: Keynode 
     T         getData()                {   return m_data;    }
@@ -61,6 +70,22 @@ public:
                                   }
 };
 
+// Modificacion, iterador hacia atrás
+template <typename Container>
+class binary_tree_reverse_iterator : public general_iterator<Container, class binary_tree_reverse_iterator<Container> >
+{
+    _DEF(Container, binary_tree_reverse_iterator);
+public:
+    binary_tree_reverse_iterator(Container *pContainer, Node *pNode)
+        : Parent(pContainer, pNode) {}
+    binary_tree_reverse_iterator operator++()
+    {
+        // Lógica inversa (ejemplo conceptual)
+        // Parent::m_pNode = (Node*)Parent::m_pNode->getPrev();
+        return *this;}
+};
+// Fin de modificacion
+
 template <typename _T>
 struct BinaryTreeAscTraits{
     using  T         = _T;
@@ -87,15 +112,20 @@ class CBinaryTree{
     typedef CBinaryTree<Traits>              myself;
     typedef binary_tree_iterator<myself>    iterator;
 
+	typedef binary_tree_reverse_iterator<myself> reverse_iterator; // Modifiacion, backwards iterator
 protected:
     Node    *m_pRoot = nullptr;
     size_t   m_size  = 0;
     CompareFn Compfn;
+    mutable std::mutex m_mutex; // mutex para concurrente
+    
 public: 
     size_t  size()  const       { return m_size;       }
     bool    empty() const       { return size() == 0;  }
     // TODO: insert must receive two paramaters: elem and LinkedValueType value
-    virtual void    insert(value_type &elem, LinkedValueType value) { internal_insert(elem, value, nullptr, m_pRoot);  }
+    virtual void    insert(value_type &elem, LinkedValueType value) { 
+		std::lock_guard<std::mutex> lock(m_mutex); // Modificacion, control concurrente
+		internal_insert(elem, value, nullptr, m_pRoot);  }
 
 protected:
     // TODO: Fuentes Patrick
@@ -150,6 +180,21 @@ protected:
     // Generalizar el recorrido para recibir cualquier funcion
     // con una cantidad flexible de parametros conm variadic templates
     // https://en.cppreference.com/w/cpp/language/parameter_packs
+
+    // Modificacion, inorder variadic
+    template<typename Func, typename... Args>
+    void inorder_variadic(Node *pNode, Func fn, Args&&... args){
+        if(pNode){
+            inorder_variadic(pNode->getChild(0), fn, std::forward<Args>(args)...);
+            fn(pNode->getDataRef(), std::forward<Args>(args)...);
+            inorder_variadic(pNode->getChild(1), fn, std::forward<Args>(args)...);}}
+    template<typename Func, typename... Args>
+    void preorder_variadic(Node *pNode, Func fn, Args&&... args){
+        if(pNode){
+            fn(pNode->getDataRef(), std::forward<Args>(args)...);
+            preorder_variadic(pNode->getChild(0), fn, std::forward<Args>(args)...);
+            preorder_variadic(pNode->getChild(1), fn, std::forward<Args>(args)...);}}
+    // Fin de modificacion
     
     // TODO: Quispe David
     void inorder(Node  *pNode, ostream &os, size_t level){
@@ -210,7 +255,17 @@ protected:
     void Write(ostream &os) { os << *this;  }
 
     // TODO: Toledo Oscar
-    void Read(istream &is)  { /* TODO */  }
+    // Modificacion, implementación Read
+    void Read(istream &is)  { 
+        std::lock_guard<std::mutex> lock(m_mutex);
+        clear(m_pRoot);
+        m_pRoot = nullptr;
+        m_size = 0;
+        value_type val;
+        while (is >> val) {
+            LinkedValueType dummy = nullptr;
+            insert(val, dummy);}}
+    // Fin de modificacion
 };
 
 // TODO: Arriola Aldo
