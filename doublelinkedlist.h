@@ -2,14 +2,15 @@
 #define __DOUBLE_LINKEDLIST_H__
 #include <iostream>
 #include <mutex>
+#include <utility>
 #include "types.h"
 #include "traits.h"
 
-template <typename Traits>
+template <typename Traits, typename... Args>
 class DLLNode{
 private:
     using    value_type = typename Traits::value_type;
-    using    Node       = DLLNode<Traits>;
+    using    Node       = DLLNode<Traits, Args...>;
 
     // Fields go here
     value_type          m_data;
@@ -38,13 +39,12 @@ public:
 
 // 
 // TODO Activar el forward_iterator
-template <typename Container>
+template <typename Container, typename... Args>
 class forward_double_linkedlist_iterator{
  private:
      using value_type = typename Container::value_type;
      using Node       = typename Container::Node;
-     // Diff
-     using iterator   = forward_double_linkedlist_iterator<Container>;
+     using iterator   = forward_double_linkedlist_iterator<Container, Args...>;
 
      Container *m_pList = nullptr;
      Node      *m_pNode = nullptr;
@@ -65,13 +65,12 @@ class forward_double_linkedlist_iterator{
      value_type &operator*(){    return m_pNode->GetDataRef();   }
 };
 
-template <typename Container>
+template <typename Container, typename... Args>
 class backward_double_linkedlist_iterator{
  private:
      using value_type = typename Container::value_type;
      using Node       = typename Container::Node;
-     // Diff
-     using iterator   = backward_double_linkedlist_iterator<Container>;
+     using iterator   = backward_double_linkedlist_iterator<Container, Args...>;
 
      Container *m_pList = nullptr;
      Node      *m_pNode = nullptr;
@@ -94,34 +93,42 @@ class backward_double_linkedlist_iterator{
      value_type &operator*(){    return m_pNode->GetDataRef();   }
 };
 
-// TODO Agregar control de concurrencia
-
 // TODO Agregar que sea ascendente o descendente con el mismo codigo
-template <typename Traits>
+template <typename Traits, typename... Args>
 class CDoubleLinkedList{
 public:
     using value_type = typename Traits::value_type; 
     using Func       = typename Traits::Func;
-    using Node       = DLLNode<Traits>; 
-    using Container  = CDoubleLinkedList<Traits>;
-    using forward_iterator   = forward_double_linkedlist_iterator<Container>;
-    using backward_iterator  = backward_double_linkedlist_iterator<Container>;
+    using Node       = DLLNode<Traits, Args...>; 
+    using Container  = CDoubleLinkedList<Traits, Args...>;
+    using forward_iterator   = forward_double_linkedlist_iterator<Container, Args...>;
+    using backward_iterator  = backward_double_linkedlist_iterator<Container, Args...>;
     
 private:
     Node   *m_pRoot = nullptr;
     Node   *m_pTail = nullptr;
     size_t m_nElem = 0;
     Func   m_fCompare;
-	std::mutex m_mutex; // modificacion LS
+	mutable std::mutex m_mutex; // modificacion LS
 
 public:
     // Constructor
     CDoubleLinkedList();
     CDoubleLinkedList(CDoubleLinkedList &other);
 
-    // TODO: Done
-    CDoubleLinkedList(CDoubleLinkedList &&other);
+    // Move Constructor
+    CDoubleLinkedList(CDoubleLinkedList &&other){
+        std::lock_guard<std::mutex> lock(other.m_mutex);
+        m_pRoot    = other.m_pRoot;
+        m_pTail    = other.m_pTail;
+        m_nElem    = other.m_nElem;
+        m_fCompare = std::move(other.m_fCompare);
 
+        other.m_pRoot = nullptr;
+        other.m_pTail = nullptr;
+        other.m_nElem = 0;
+    }
+    
     // Destructor seguro
     virtual ~CDoubleLinkedList();
 
@@ -154,14 +161,14 @@ public:
     std::istream &Read (std::istream &is);
 };
 
-template <typename Traits>
+template <typename Traits, typename... Args>
 void CDoubleLinkedList<Traits>::Insert(value_type &elem, Ref ref){
 	std::lock_guard<std::mutex> lock(m_mutex);  // modificacion LS
     InternalInsert(m_pRoot, elem, ref);
 }
 
 // TODO: Agregar el enlace para el Prev()
-template <typename Traits>
+template <typename Traits, typename... Args>
 void CDoubleLinkedList<Traits>::InternalInsert(Node *&rParent, value_type &elem, Ref ref){
     if( !rParent || m_fCompare(elem, rParent->GetDataRef()) ){
 
@@ -182,12 +189,12 @@ void CDoubleLinkedList<Traits>::InternalInsert(Node *&rParent, value_type &elem,
     InternalInsert(rParent->GetNextRef(), elem, ref);
 }
 
-template <typename Traits>
+template <typename Traits, typename... Args>
 CDoubleLinkedList<Traits>::CDoubleLinkedList(){}
 
 // TODO Constructor por copia
 //      Hacer loop copiando cada elemento
-template <typename Traits>
+template <typename Traits, typename... Args>
 CDoubleLinkedList<Traits>::CDoubleLinkedList(CDoubleLinkedList &other){
 	std::lock_guard<std::mutex> lock(other.m_mutex); // modificacion LS
     Node *pNode = other.m_pRoot;
@@ -198,16 +205,8 @@ CDoubleLinkedList<Traits>::CDoubleLinkedList(CDoubleLinkedList &other){
         pNode = pNode->GetNext();}
 }
 
-// Move Constructor
-template <typename Traits>
-CDoubleLinkedList<Traits>::CDoubleLinkedList(CDoubleLinkedList &&other){
-    m_pRoot    = std::move(other.m_pRoot);
-    m_nElem    = std::move(other.m_nElem);
-    m_fCompare = std::move(other.m_fCompare);
-    m_pTail    = std::move(other.m_pTail);} // modificacion LS
-
 // TODO: Implementar y liberar la memoria de cada Node
-template <typename Traits>
+template <typename Traits, typename... Args>
 CDoubleLinkedList<Traits>::~CDoubleLinkedList()
 {
     std::lock_guard<std::mutex> lock(m_mutex); // modificacion LS
@@ -220,16 +219,7 @@ CDoubleLinkedList<Traits>::~CDoubleLinkedList()
     m_pTail = nullptr;
     m_nElem = 0;}
 
-// TODO: Este operador debe quedar fuera de la clase
-// template <typename Traits>
-// std::ostream &operator<<(std::ostream &os, CDoubleLinkedList<Traits> &obj){
-//     auto pRoot = obj.GetRoot();
-//     while( pRoot )
-//         os << pRoot->GetData() << " ";
-//     return os;
-// }
-
-template <typename Traits> // modificacion LS
+template <typename Traits, typename... Args> // modificacion LS
 std::istream &CDoubleLinkedList<Traits>::Read(std::istream &is){
     std::lock_guard<std::mutex> lock(m_mutex);
     value_type val;
