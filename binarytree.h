@@ -34,7 +34,8 @@ public:
         : m_data(other.m_data), m_ref(other.m_ref), m_pParent(nullptr)
     {
         m_pChild[0] = other.m_pChild[0] ? new Node(*other.m_pChild[0]) : nullptr;
-        m_pChild[1] = other.m_pChild[1] ? new Node(*other.m_pChild[1]) : nullptr;} // Fin de modificacion
+        m_pChild[1] = other.m_pChild[1] ? new Node(*other.m_pChild[1]) : nullptr;
+	} // Fin de modificacion
 
 // TODO: Keynode 
     value_type getData() { return m_data; }
@@ -44,7 +45,8 @@ public:
     void      setpChild(const Node *pChild, size_t pos)  {   m_pChild[pos] = pChild;  }
     Node    * getChild(size_t branch){ return m_pChild[branch];  }
     Node    *&getChildRef(size_t branch){ return m_pChild[branch];  }
-    Node    * getParent() { return m_pParent;   }};
+    Node    * getParent() { return m_pParent;}
+	};
 
 template <typename Container, typename... Args>
 class binary_tree_iterator : public general_iterator<Container, binary_tree_iterator<Container, Args...>> {
@@ -70,7 +72,9 @@ public:
             }
             this->m_pNode = node;
         }
-        return *this;}};
+        return *this;
+	}
+};
 
 // Modificacion, iterador hacia atrás
 template <typename Container, typename... Args>
@@ -97,7 +101,9 @@ public:
             }
             this->m_pNode = node;
         }
-        return *this;}}; // Fin de modificacion
+        return *this;
+	}
+}; // Fin de modificacion
 
 
 template <typename _T, typename... Args>
@@ -110,7 +116,8 @@ template <typename _T, typename... Args>
 struct BinaryTreeDescTraits{
     using T = _T;
     using Node = CBinaryTreeNode<BinaryTreeDescTraits<_T, Args...>, Args...>;
-    using CompareFn = greater<T>;};
+    using CompareFn = greater<T>;
+};
 
 // Árbol binario
 template <typename Traits, typename... Args>
@@ -129,13 +136,26 @@ protected:
     mutable std::mutex m_mutex; // mutex para concurrente
 public:
     CBinaryTree() = default;
-    CBinaryTree(CBinaryTree&& other) noexcept
-        : m_pRoot(other.m_pRoot), m_size(other.m_size), Compfn(std::move(other.Compfn))
-    {
+    // Copy costructor
+    CBinaryTree(const CBinaryTree& other) {
+        std::lock_guard<std::mutex> lock(other.m_mutex);
+        m_pRoot = copyTree(nullptr, other.m_pRoot);
+        m_size = other.m_size;
+        Compfn = other.Compfn;
+    }
+	// Moce constructor
+    CBinaryTree(CBinaryTree&& other) noexcept {
+        // lock the source while stealing its resources
+        std::lock_guard<std::mutex> lock(other.m_mutex); // MODIFICADO (LOCK)
+        m_pRoot = other.m_pRoot;
+        m_size = other.m_size;
+        Compfn = std::move(other.Compfn);
         other.m_pRoot = nullptr;
-        other.m_size = 0;}
+        other.m_size = 0;
+    }
     // Destructor
     virtual ~CBinaryTree() {
+    	std::lock_guard<std::mutex> lock(m_mutex);
         clear(m_pRoot);
         m_pRoot = nullptr;
         m_size = 0;
@@ -164,37 +184,62 @@ protected:
         Node* newNode = new Node(pParent, pNode->getDataRef(), pNode->m_ref);
         newNode->m_pChild[0] = copyTree(newNode, pNode->getChild(0));
         newNode->m_pChild[1] = copyTree(newNode, pNode->getChild(1));
-        return newNode;}
-
+        return newNode;
+		}
+    void clear(Node* pNode) {
+        if (pNode) {
+            clear(pNode->getChild(0));
+            clear(pNode->getChild(1));
+            delete pNode;
+        }
+    }
+    
     template<typename Func, typename... FArgs>
     void inorder_variadic(Node* pNode, Func fn, FArgs&&... args) {
         if (pNode) {
             inorder_variadic(pNode->getChild(0), fn, std::forward<FArgs>(args)...);
             fn(pNode->getDataRef(), std::forward<FArgs>(args)...);
-            inorder_variadic(pNode->getChild(1), fn, std::forward<FArgs>(args)...);}}
+            inorder_variadic(pNode->getChild(1), fn, std::forward<FArgs>(args)...);}
+		}
 
     template<typename Func, typename... FArgs>
     void preorder_variadic(Node* pNode, Func fn, FArgs&&... args) {
         if (pNode) {
             fn(pNode->getDataRef(), std::forward<FArgs>(args)...);
             preorder_variadic(pNode->getChild(0), fn, std::forward<FArgs>(args)...);
-            preorder_variadic(pNode->getChild(1), fn, std::forward<FArgs>(args)...);}}
+            preorder_variadic(pNode->getChild(1), fn, std::forward<FArgs>(args)...);}
+		}
 
     template<typename Func, typename... FArgs>
     void postorder_variadic(Node* pNode, Func fn, FArgs&&... args) {
         if (pNode) {
             postorder_variadic(pNode->getChild(0), fn, std::forward<FArgs>(args)...);
             postorder_variadic(pNode->getChild(1), fn, std::forward<FArgs>(args)...);
-            fn(pNode->getDataRef(), std::forward<FArgs>(args)...);}}
+            fn(pNode->getDataRef(), std::forward<FArgs>(args)...);
+		}
+	}
 
 public:
     template<typename Func, typename... FArgs>
-    void inorder(Func fn, FArgs&&... args) { inorder_variadic(m_pRoot, fn, std::forward<FArgs>(args)...); }
+    void inorder(Func fn, FArgs&&... args) { 
+		std::lock_guard<std::mutex> lock(m_mutex)
+		inorder_variadic(m_pRoot, fn, std::forward<FArgs>(args)...); }
     template<typename Func, typename... FArgs>
-    void preorder(Func fn, FArgs&&... args) { preorder_variadic(m_pRoot, fn, std::forward<FArgs>(args)...); }
+    void preorder(Func fn, FArgs&&... args) { 
+		std::lock_guard<std::mutex> lock(m_mutex)
+		preorder_variadic(m_pRoot, fn, std::forward<FArgs>(args)...); }
     template<typename Func, typename... FArgs>
-    void postorder(Func fn, FArgs&&... args) { postorder_variadic(m_pRoot, fn, std::forward<FArgs>(args)...); }};
-
+    void postorder(Func fn, FArgs&&... args) { 
+		std::lock_guard<std::mutex> lock(m_mutex)
+		postorder_variadic(m_pRoot, fn, std::forward<FArgs>(args)...); }};
+	
+	//print
+	void Print() {
+    	std::lock_guard<std::mutex> lock(m_mutex);
+    	inorder_variadic(m_pRoot, [](auto& v){ std::cout << v << " "; });
+    	std::cout << "\n";
+	}
+	
 template <typename Traits, typename... Args>
 ostream& operator<<(ostream& os, CBinaryTree<Traits, Args...>& obj){
     os << "CBinaryTree with " << obj.size() << " elements.\n";
