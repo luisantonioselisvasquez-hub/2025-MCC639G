@@ -30,13 +30,13 @@ class BTree // this is the full version of the BTree
        typedef CBTreePage <Trait> BTNode;// useful shorthand
 
 public:
-       //typedef ObjectInfo iterator;
-       // TODO replace thius functions by foreach
-       typedef typename BTNode::lpfnForEach2    lpfnForEach2;
-       typedef typename BTNode::lpfnForEach3    lpfnForEach3;
-       typedef typename BTNode::lpfnFirstThat2  lpfnFirstThat2;
-       typedef typename BTNode::lpfnFirstThat3  lpfnFirstThat3;
-       typedef typename BTNode::ObjectInfo      ObjectInfo;
+    using ObjectInfo = typename BTNode::ObjectInfo;
+
+protected:
+    using lpfnForEach2   = typename BTNode::lpfnForEach2;
+    using lpfnForEach3   = typename BTNode::lpfnForEach3;
+    using lpfnFirstThat2 = typename BTNode::lpfnFirstThat2;
+    using lpfnFirstThat3 = typename BTNode::lpfnFirstThat3;
 
 public:
        BTree(size_t order = DEFAULT_BTREE_ORDER, bool unique = true)
@@ -51,7 +51,7 @@ public:
        // Move constructor
        BTree(BTree&& other) noexcept
        {
-		   std::lock_guard<std::mutex> lk(other.m_Mutex);
+		   std::scoped_lock lock(m_Mutex, other.m_Mutex);
            m_Root = std::move(other.m_Root);
            m_Order = other.m_Order;
            m_Height = other.m_Height;
@@ -65,8 +65,7 @@ public:
        BTree& operator=(BTree&& other) noexcept
        {
            if (this == &other) return *this;
-           std::lock_guard<std::mutex> lk1(m_Mutex);
-           std::lock_guard<std::mutex> lk2(other.m_Mutex);
+           std::scoped_lock lock(m_Mutex, other.m_Mutex);
            m_Root = std::move(other.m_Root);
            m_Order = other.m_Order;
            m_Height = other.m_Height;
@@ -80,9 +79,6 @@ public:
        }
        
        ~BTree() {}
-       //int           Open (char * name, int mode);
-       //int           Create (char * name, int mode);
-       //int           Close ();
        bool            Insert (const keyType key, const long ObjID);
        bool            Remove (const keyType key, const long ObjID);
        ObjIDType       Search (const keyType key)
@@ -106,80 +102,30 @@ public:
        {               std::lock_guard<std::mutex> lk(m_Mutex); return m_Root.FirstThat(lpfn, 0, pExtra1, pExtra2);}
        //typedef               ObjectInfo iterator;
 
-       // ========== ADDED: generalized foreach (templated) ==========
-       // Uses CBTreePage's existing lpfnForEach2/3 signatures via adapters.
-       // Example usage:
-       //    tree.foreach([](const auto &oi){ std::cout << oi.key << "\n"; });
-       template<typename Fn>
-       void foreach(Fn&& fn)
+       // foreach template
+       template <typename Fn, typename... Args>
+       void foreach(Fn&& fn, Args&&... args)
        {
-           struct Wrapper { typename std::decay<Fn>::type f; Wrapper(Fn&& g): f(std::forward<Fn>(g)) {} };
-           Wrapper* p = new Wrapper(std::forward<Fn>(fn));
-           // adapter to lpfnForEach2: void(ObjectInfo&, size_t, void*)
-           auto adapter = +[](ObjectInfo& oi, size_t /*level*/, void* extra){
-               Wrapper* w = static_cast<Wrapper*>(extra);
-               w->f(oi);
-           };
-           {
-               std::lock_guard<std::mutex> lk(m_Mutex);
-               m_Root.ForEach(reinterpret_cast<lpfnForEach2>(adapter), 0, static_cast<void*>(p));
-           }
-           delete p;
+           std::lock_guard<std::mutex> lk(m_Mutex);
+           using callback_t = std::function<void(ObjectInfo&, Args...)>;
+           callback_t callback = std::forward<Fn>(fn);
+           m_Root.ForEach(
+               [&](ObjectInfo& oi, size_t) {
+            		callback(static_cast<const ObjectInfo&>(oi), std::forward<Args>(args)...);}, 0, std::forward<Args>(args)...
+           );
        }
-
-       // overload with extra parameter passed to functor (2-arg form)
-       template<typename Fn, typename E1>
-       void foreach(Fn&& fn, E1* extra1)
+		
+		// firstThat template
+       template <typename Pred, typename... Args>
+       ObjectInfo* firstThat(Pred&& pred, Args&&... args)
        {
-           using Pair = std::pair<typename std::decay<Fn>::type, E1*>;
-           Pair* p = new Pair(std::forward<Fn>(fn), extra1);
-           auto adapter3 = +[](ObjectInfo& oi, size_t /*level*/, void* e1, void* extra){
-               Pair* wp = static_cast<Pair*>(extra);
-               wp->first(oi, wp->second);
-           };
-           {
-               std::lock_guard<std::mutex> lk(m_Mutex);
-               m_Root.ForEach(reinterpret_cast<lpfnForEach3>(adapter3), 0, nullptr, static_cast<void*>(p));
-           }
-           delete p;
-       }
-
-       // ========== ADDED: generalized firstThat (templated) ==========
-       // Returns pointer into the page (same semantics as existing FirstThat)
-       template<typename Pred>
-       ObjectInfo* firstThat(Pred&& pred)
-       {
-           struct PWrapper { typename std::decay<Pred>::type p; PWrapper(Pred&& pr): p(std::forward<Pred>(pr)) {} };
-           PWrapper* pw = new PWrapper(std::forward<Pred>(pred));
-           auto adapter = +[](ObjectInfo& oi, size_t /*level*/, void* extra)->ObjectInfo* {
-               PWrapper* w = static_cast<PWrapper*>(extra);
-               return w->p(oi) ? &oi : nullptr;
-           };
-           ObjectInfo* res = nullptr;
-           {
-               std::lock_guard<std::mutex> lk(m_Mutex);
-               res = m_Root.FirstThat(reinterpret_cast<lpfnFirstThat2>(adapter), 0, static_cast<void*>(pw));
-           }
-           delete pw;
-           return res;
-       }
-
-       template<typename Pred, typename E1>
-       ObjectInfo* firstThat(Pred&& pred, E1* extra1)
-       {
-           using Pair = std::pair<typename std::decay<Pred>::type, E1*>;
-           Pair* p = new Pair(std::forward<Pred>(pred), extra1);
-           auto adapter3 = +[](ObjectInfo& oi, size_t /*level*/, void* e1, void* extra)->ObjectInfo* {
-               Pair* wp = static_cast<Pair*>(extra);
-               return wp->first(oi, wp->second) ? &oi : nullptr;
-           };
-           ObjectInfo* res = nullptr;
-           {
-               std::lock_guard<std::mutex> lk(m_Mutex);
-               res = m_Root.FirstThat(reinterpret_cast<lpfnFirstThat3>(adapter3), 0, nullptr, static_cast<void*>(p));
-           }
-           delete p;
-           return res;
+           std::lock_guard<std::mutex> lk(m_Mutex);
+           using callback_t = std::function<bool(ObjectInfo&, Args...)>;
+           callback_t callback = std::forward<Pred>(pred);
+           return m_Root.FirstThat(
+               [&](ObjectInfo& oi, size_t /*level*/) -> ObjectInfo* {
+            return callback(static_cast<const ObjectInfo&>(oi), std::forward<Args>(args)...) ? &oi : nullptr;}, 0, std::forward<Args>(args)...
+           );
        }
 
        // Iterator
@@ -196,7 +142,6 @@ public:
            iterator operator++(int) { iterator tmp = *this; ++(*this); return tmp; }
            bool operator==(const iterator& o) const { return idx == o.idx && items.data() == o.items.data(); }
            bool operator!=(const iterator& o) const { return !(*this == o); }
-
        private:
            std::vector<ObjectInfo> items;
            size_t idx = 0;
@@ -225,35 +170,32 @@ public:
        };
 
        iterator begin() const {
-           std::vector<ObjectInfo> snapshot;
-           foreach([&](const ObjectInfo& oi){ snapshot.push_back(oi); });
-           return iterator(std::move(snapshot), 0);
+           std::vector<ObjectInfo> s;
+           m_Root->ForEach([&](const ObjectInfo& oi, size_t){ s.push_back(oi); }, 0);
+           return iterator(std::move(s), 0);
        }
        iterator end() const {
-           std::vector<ObjectInfo> snapshot;
-           foreach([&](const ObjectInfo& oi){ snapshot.push_back(oi); });
-           return iterator(std::move(snapshot), snapshot.size());
+           std::vector<ObjectInfo> s;
+           m_Root->ForEach([&](const ObjectInfo& oi, size_t){ s.push_back(oi); }, 0);
+           return iterator(std::move(s), s.size());
        }
 
        reverse_iterator rbegin() const {
-           std::vector<ObjectInfo> snapshot;
-           foreach([&](const ObjectInfo& oi){ snapshot.push_back(oi); });
-           std::reverse(snapshot.begin(), snapshot.end());
-           return reverse_iterator(std::move(snapshot), 0);
+           std::vector<ObjectInfo> s;
+           m_Root->ForEachReverse([&](const ObjectInfo& oi, size_t){ s.push_back(oi); }, 0);;
+           return reverse_iterator(std::move(s), 0);
        }
        reverse_iterator rend() const {
-           std::vector<ObjectInfo> snapshot;
-           foreach([&](const ObjectInfo& oi){ snapshot.push_back(oi); });
-           std::reverse(snapshot.begin(), snapshot.end());
-           return reverse_iterator(std::move(snapshot), snapshot.size());
+           std::vector<ObjectInfo> s;
+           m_Root->ForEachReverse([&](const ObjectInfo& oi, size_t){ s.push_back(oi); }, 0);
+           return reverse_iterator(std::move(s), s.size());
        }
 
        // Read/Write
        void write(std::ostream& os) const {
            std::lock_guard<std::mutex> lk(m_Mutex);
            auto writer = [&](const ObjectInfo& oi){ os << oi.key << " " << oi.ObjID << "\n"; };
-           auto w = writer;
-           const_cast<BTree*>(this)->foreach(w);
+           const_cast<BTree*>(this)->foreach(writer);
        }
 
        void read(std::istream& is) {
